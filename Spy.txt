@@ -1,0 +1,135 @@
+--[=[
+    Advanced HttpSpy with Variable Fetching & Reverse Engineering
+]=]
+
+if rconsoleprint then
+    rconsoleprint("https://eleutheri.com - #1 Whitelist Service\n\n")
+end
+
+assert(syn or http, "Unsupported exploit (should support syn.request or http.request)")
+
+local options = ({...})[1] or { 
+    AutoDecode = true, 
+    Highlighting = true, 
+    SaveLogs = true, 
+    CLICommands = true, 
+    ShowResponse = true, 
+    BlockedURLs = {}, 
+    API = true 
+}
+
+local version = "v3.1.0"
+local logname = "ShinzouSpy.txt"
+
+if options.SaveLogs then
+    writefile(logname, string.format("Http Logs from %s\n\n", os.date("%d/%m/%y")))
+end
+
+local Serializer = loadstring(game:HttpGet("https://raw.githubusercontent.com/NotDSF/leopard/main/rbx/leopard-syn.lua"))()
+local reqfunc = (syn or http).request
+local libtype = syn and "syn" or "http"
+local OnRequest = Instance.new("BindableEvent")
+
+local function printf(...) 
+    if options.SaveLogs then
+        appendfile(logname, string.format(...))
+    end
+    return rconsoleprint(string.format(...))
+end
+
+-- Reverse Engineering Utilities
+local function ReverseString(str)
+    return str:reverse()
+end
+
+local function Base64Encode(str)
+    return syn.crypt.base64.encode(str)
+end
+
+local function Base64Decode(str)
+    return syn.crypt.base64.decode(str)
+end
+
+local function XOREncrypt(str, key)
+    local result = {}
+    for i = 1, #str do
+        result[i] = string.char(bit32.bxor(string.byte(str, i), key))
+    end
+    return table.concat(result)
+end
+
+-- Fetches all global and environment variables
+local function FetchAllVariables()
+    local results = {}
+
+    -- Get all global variables (_G, shared)
+    results["_G"] = _G
+    results["shared"] = shared
+
+    -- Get script environment variables
+    results["Environment"] = getfenv()
+
+    -- Get garbage collector objects (functions, tables)
+    results["GarbageCollector"] = {}
+    for _, obj in pairs(getgc(true)) do
+        if type(obj) == "table" or type(obj) == "function" then
+            table.insert(results["GarbageCollector"], obj)
+        end
+    end
+
+    -- Get loaded modules and script closures
+    results["LoadedModules"] = {}
+    for _, mod in pairs(getloadedmodules()) do
+        table.insert(results["LoadedModules"], mod)
+    end
+
+    results["ScriptClosures"] = {}
+    for _, scr in pairs(getscripts()) do
+        table.insert(results["ScriptClosures"], getscripthash(scr) or "Unknown")
+    end
+
+    return results
+end
+
+local function FormatTable(tbl, depth)
+    depth = depth or 0
+    local formatted = "{\n"
+    for k, v in pairs(tbl) do
+        formatted = formatted .. string.rep(" ", depth * 4) .. "[" .. tostring(k) .. "] = "
+        if type(v) == "table" then
+            formatted = formatted .. FormatTable(v, depth + 1)
+        else
+            formatted = formatted .. tostring(v)
+        end
+        formatted = formatted .. ",\n"
+    end
+    return formatted .. string.rep(" ", (depth - 1) * 4) .. "}"
+end
+
+local function LogAllVariables()
+    local allVars = FetchAllVariables()
+    printf("[All Variables]:\n%s\n", FormatTable(allVars))
+end
+
+-- Hook the request function to log and analyze HTTP requests
+hookfunction(reqfunc, newcclosure(function(req) 
+    if type(req) ~= "table" then return reqfunc(req) end
+    local RequestData = table.clone(req)
+    printf("%s.request(%s)\n\n", libtype, Serializer.Serialize(RequestData))
+    LogAllVariables()
+    
+    -- Attempt to decode and analyze the request body
+    if options.AutoDecode and RequestData.Body then
+        printf("[Reversed String]: %s\n", ReverseString(RequestData.Body))
+        local success, decoded = pcall(Base64Decode, RequestData.Body)
+        printf("[Base64 Decoded]: %s\n", success and decoded or "N/A")
+    end
+    
+    return reqfunc(req)
+end))
+
+if request then
+    replaceclosure(request, reqfunc)
+end
+
+rconsoleprint(string.format("Advanced HttpSpy %s (Variable Fetching & Reverse Engineering Enabled)\n", version))
