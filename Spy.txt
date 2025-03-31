@@ -1,187 +1,111 @@
---[=[
-    Advanced HttpSpy with LocalScript DeepScan & Structured Variable Logging
-]=]
+--[[
+    Enhanced HttpSpy v3.0
+    Features: Full Variable & Code Fetching, Deep Scan, Base64 & String Decryption, Reverse Engineering, Hidden Variable & Value Logging
+]]
 
 if rconsoleprint then
     rconsoleprint("https://eleutheri.com - #1 Whitelist Service\n\n")
-end
+end;
 
-assert(syn or http, "Unsupported exploit (should support syn.request or http.request)")
+assert(syn or http, "Unsupported exploit (should support syn.request or http.request)");
 
-local options = ({...})[1] or { 
-    AutoDecode = true, 
-    Highlighting = true, 
-    SaveLogs = true, 
-    CLICommands = true, 
-    ShowResponse = true, 
-    BlockedURLs = {}, 
-    API = true 
-}
+local options = ({...})[1] or {
+    AutoDecode = true,
+    Highlighting = true,
+    SaveLogs = true,
+    CLICommands = true,
+    ShowResponse = true,
+    BlockedURLs = {},
+    API = true,
+    DeepScan = true,
+    Base64Decode = true,
+    StringDecrypt = true,
+    FetchHiddenVars = true,
+    FetchAllVariables = true
+};
 
-local version = "v4.0.0"
-local logname = "ShonzouHttpSpy.txt"  -- Log file
-
+local logname = "Shinzou.json"
 if options.SaveLogs then
-    writefile(logname, string.format("Http Logs from %s\n\n", os.date("%d/%m/%y")))
-end
+    writefile(logname, string.format("Http Logs from %s\n\n", os.date("%d/%m/%y"))) 
+end;
 
-local Serializer = loadstring(game:HttpGet("https://raw.githubusercontent.com/NotDSF/leopard/main/rbx/leopard-syn.lua"))()
-local reqfunc = (syn or http).request
-local libtype = syn and "syn" or "http"
-local OnRequest = Instance.new("BindableEvent")
+local Serializer = loadstring(game:HttpGet("https://raw.githubusercontent.com/NotDSF/leopard/main/rbx/leopard-syn.lua"))();
+local clonef = clonefunction;
+local function base64decode(data)
+    return syn.crypt.base64.decode(data) or "[Failed to decode]"
+end;
 
-local function printf(...) 
-    local formatted = string.format(...)
-    if options.SaveLogs then
-        appendfile(logname, formatted .. "\n")
-    end
-    return rconsoleprint(formatted)
-end
+local function decryptString(str)
+    return syn.crypt.decrypt(str, "key") or "[Decryption Failed]"
+end;
 
--- Reverse Engineering Utilities
-local function ReverseString(str)
-    return str:reverse()
-end
-
-local function Base64Encode(str)
-    return syn.crypt.base64.encode(str)
-end
-
-local function Base64Decode(str)
-    return syn.crypt.base64.decode(str)
-end
-
-local function XOREncrypt(str, key)
-    local result = {}
-    for i = 1, #str do
-        result[i] = string.char(bit32.bxor(string.byte(str, i), key))
-    end
-    return table.concat(result)
-end
-
--- Fetches all global and environment variables
-local function FetchAllVariables()
-    local results = {}
-
-    -- Get all global variables (_G, shared)
-    results["_G"] = _G
-    results["shared"] = shared
-
-    -- Get script environment variables
-    results["Environment"] = getfenv()
-
-    -- Get garbage collector objects (functions, tables)
-    results["GarbageCollector"] = {}
+local function deepScan()
+    local scannedData = {}
     for _, obj in pairs(getgc(true)) do
-        if type(obj) == "table" or type(obj) == "function" then
-            table.insert(results["GarbageCollector"], obj)
-        end
-    end
-
-    -- Get loaded modules and script closures
-    results["LoadedModules"] = {}
-    for _, mod in pairs(getloadedmodules()) do
-        table.insert(results["LoadedModules"], mod)
-    end
-
-    results["ScriptClosures"] = {}
-    for _, scr in pairs(getscripts()) do
-        table.insert(results["ScriptClosures"], getscripthash(scr) or "Unknown")
-    end
-
-    return results
-end
-
-local function FormatStructuredTable(tbl, indent)
-    indent = indent or 1
-    local formatted = "[table]:{\n"
-    
-    for k, v in pairs(tbl) do
-        formatted = formatted .. string.rep("  ", indent) .. "[" .. tostring(k) .. "] = "
-        
-        if type(v) == "table" then
-            formatted = formatted .. FormatStructuredTable(v, indent + 1)
-        elseif type(v) == "string" then
-            formatted = formatted .. "\"" .. v .. "\",\n"
-        else
-            formatted = formatted .. tostring(v) .. ",\n"
-        end
-    end
-    
-    return formatted .. string.rep("  ", indent - 1) .. "},\n"
-end
-
-local function LogAllVariables()
-    local allVars = FetchAllVariables()
-    local structuredVars = FormatStructuredTable(allVars)
-    
-    printf("\n===== [All Variables] =====\n%s\n", structuredVars)
-end
-
--- **DeepScan LocalScripts**
-local function DeepScanLocalScripts()
-    local results = {}
-
-    for _, script in ipairs(game:GetDescendants()) do
-        if script:IsA("LocalScript") then
-            local scriptInfo = {
-                ["Name"] = script.Name,
-                ["Parent"] = script.Parent and script.Parent:GetFullName() or "Unknown",
-                ["Environment"] = getfenv(script),
-                ["ScriptHash"] = getscripthash(script) or "Unknown",
-                ["LocalVariables"] = {},
-                ["FunctionClosures"] = {},
-            }
-
-            -- Extracting Local Variables & Functions
-            for _, func in pairs(getgc(true)) do
-                if type(func) == "function" and islclosure(func) and getfenv(func).script == script then
-                    table.insert(scriptInfo["FunctionClosures"], func)
-                elseif type(func) == "table" and getfenv(func).script == script then
-                    table.insert(scriptInfo["LocalVariables"], func)
-                end
+        if type(obj) == "function" and islclosure(obj) then
+            local constTable = {}
+            for _, const in ipairs(debug.getconstants(obj)) do
+                table.insert(constTable, const)
             end
-
-            table.insert(results, scriptInfo)
+            table.insert(scannedData, constTable)
         end
     end
+    appendfile(logname, "[table]:" .. Serializer.Serialize(scannedData) .. "\n\n")
+end;
 
-    return results
-end
+local function fetchAllVariables()
+    local allVars = {}
+    for k, v in pairs(getgenv()) do
+        allVars[k] = v
+    end
+    for k, v in pairs(getreg()) do
+        allVars[k] = v
+    end
+    for _, obj in pairs(getgc(true)) do
+        if type(obj) == "table" then
+            for k, v in pairs(obj) do
+                allVars[k] = v
+            end
+        end
+    end
+    appendfile(logname, "[table]:" .. Serializer.Serialize(allVars) .. "\n\n")
+end;
 
-local function LogDeepScanLocalScripts()
-    local scanResults = DeepScanLocalScripts()
-    local formattedScan = FormatStructuredTable(scanResults)
+local reqfunc = (syn or http).request;
+local libtype = syn and "syn" or "http";
+local proxied = {};
+local hooked = {};
 
-    printf("\n===== [DeepScan LocalScripts] =====\n%s\n", formattedScan)
-end
-
--- Hook the request function to log and analyze HTTP requests
-hookfunction(reqfunc, newcclosure(function(req) 
-    if type(req) ~= "table" then return reqfunc(req) end
-    local RequestData = table.clone(req)
+local __request;
+__request = hookfunction(reqfunc, newcclosure(function(req) 
+    if type(req) ~= "table" then return __request(req); end;
+    local RequestData = table.clone(req);
     
-    printf("\n===== [HTTP Request Intercepted] =====\n%s.request(%s)\n", libtype, Serializer.Serialize(RequestData))
-    
-    -- Log all fetched variables in structured format
-    LogAllVariables()
-    
-    -- Log all LocalScript data in structured format
-    LogDeepScanLocalScripts()
-    
-    -- Attempt to decode and analyze the request body
-    if options.AutoDecode and RequestData.Body then
-        printf("\n===== [Request Body Decoding] =====")
-        printf("[Reversed String]: %s\n", ReverseString(RequestData.Body))
-        local success, decoded = pcall(Base64Decode, RequestData.Body)
-        printf("[Base64 Decoded]: %s\n", success and decoded or "N/A")
+    if options.DeepScan then
+        deepScan();
     end
     
-    return reqfunc(req)
-end))
+    if options.FetchAllVariables then
+        fetchAllVariables();
+    end
+    
+    if options.Base64Decode and RequestData.Body then
+        RequestData.Body = base64decode(RequestData.Body);
+    end
+    
+    if options.StringDecrypt and RequestData.Body then
+        RequestData.Body = decryptString(RequestData.Body);
+    end
+    
+    return __request(req);
+end));
 
-if request then
-    replaceclosure(request, reqfunc)
-end
+if syn and syn.websocket then
+    local WsConnect, WsBackup = debug.getupvalue(syn.websocket.connect, 1);
+    WsBackup = hookfunction(WsConnect, function(...) 
+        rconsoleprint("syn.websocket.connect(...)\n");
+        return WsBackup(...);
+    end);
+end;
 
-rconsoleprint(string.format("Advanced HttpSpy %s (DeepScan LocalScripts Enabled)\n", version))
+return {Hooked = hooked, Proxy = proxied};
