@@ -17,6 +17,32 @@ if options.SaveLogs then
 end;
 
 local Serializer = loadstring(game:HttpGet("https://raw.githubusercontent.com/NotDSF/leopard/main/rbx/leopard-syn.lua"))();
+
+-- Function to log all environment, global, and local variables
+local function logVariables()
+    local envVars = getgenv()
+    local globalVars = _G
+    local localVars = {}
+    
+    for level = 1, math.huge do
+        local name, value = debug.getlocal(2, level)
+        if not name then break end
+        localVars[name] = value
+    end
+    
+    local logData = string.format("Environment Variables: %s\nGlobal Variables: %s\nLocal Variables: %s\n", 
+        Serializer.Serialize(envVars), Serializer.Serialize(globalVars), Serializer.Serialize(localVars))
+    
+    if options.SaveLogs then
+        appendfile(logname, logData)
+    end
+    
+    pconsole(logData)
+end
+
+-- Call the function to log variables
+logVariables()
+
 local clonef = clonefunction;
 local pconsole = clonef(rconsoleprint);
 local format = clonef(string.format);
