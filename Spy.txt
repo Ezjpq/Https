@@ -20,18 +20,35 @@ local Serializer = loadstring(game:HttpGet("https://raw.githubusercontent.com/No
 
 local function FetchEnvironmentVars()
     local envVars = {}
+    
+    -- Fetch global environment variables and their values
     for i, v in pairs(getfenv()) do
-        envVars[i] = v
+        envVars[i] = { type = type(v), value = tostring(v) }
     end
+    
+    -- Fetch registry variables and their values
     for i, v in pairs(debug.getregistry()) do
-        envVars[i] = v
+        envVars["Registry_" .. tostring(i)] = { type = type(v), value = tostring(v) }
     end
+    
+    -- Fetch global variables and their values
+    for i, v in pairs(_G) do
+        envVars["Global_" .. tostring(i)] = { type = type(v), value = tostring(v) }
+    end
+    
+    -- Fetch local variables in the current stack and their values
+    for level = 1, math.huge do
+        local name, value = debug.getlocal(level, 1)
+        if not name then break end
+        envVars["Local_" .. name] = { type = type(value), value = tostring(value) }
+    end
+    
     return envVars
 end
 
 if options.FetchEnvVars then
     local envData = FetchEnvironmentVars()
-    writefile("EnvVars.json", Serializer.Serialize(envData))
+    writefile("Vriables.json", Serializer.Serialize(envData))
     printf("Fetched environment variables saved to EnvVars.json\n\n")
 end
 
