@@ -1,9 +1,9 @@
 --[[
-    ClientHttpLogger v1.0.3
-    Educational HTTP request logger for client-side debugging
+    ClientHttpLogger v1.1.0 (With Script Decompilation)
+    Logs client-side HTTP requests and attempts to decompile fetched scripts.
 ]]
 
-assert(syn or http, "Unsupported exploit (requires syn.request or http.request)")
+assert(syn and syn.request or http and http.request, "Unsupported exploit (requires syn.request or http.request)")
 
 local options = {
     AutoDecode = true,
@@ -11,7 +11,10 @@ local options = {
     ShowResponse = true,
     LogEnvVars = true,
     FetchURLs = true,
-    BlockedURLs = {}
+    BlockedURLs = {
+        ["https://badsite.com"] = true, -- Example blocked site
+    },
+    AttemptDecompile = true -- New option to attempt script decompilation
 }
 
 local logFile = "ClientLogs.json"
@@ -37,21 +40,11 @@ local function fetchEnvironmentVars()
     local envVars = "Environment Variables Fetched:\n"
     
     for i, v in pairs(getfenv()) do
-        envVars = envVars .. "[" .. i .. "] = \"" .. tostring(v) .. "\",\n"
-    end
-    
-    for i, v in pairs(debug.getregistry()) do
-        envVars = envVars .. "[Registry_" .. tostring(i) .. "] = \"" .. tostring(v) .. "\",\n"
+        envVars = envVars .. string.format("[%s] = \"%s\",\n", i, tostring(v))
     end
     
     for i, v in pairs(_G) do
-        envVars = envVars .. "[Global_" .. tostring(i) .. "] = \"" .. tostring(v) .. "\",\n"
-    end
-    
-    for level = 1, math.huge do
-        local name, value = debug.getlocal(level, 1)
-        if not name then break end
-        envVars = envVars .. "[Local_" .. name .. "] = \"" .. tostring(value) .. "\",\n"
+        envVars = envVars .. string.format("[Global_%s] = \"%s\",\n", i, tostring(v))
     end
     
     return envVars
@@ -61,7 +54,7 @@ local function fetchURLs()
     local urlData = "URLs Fetched:\n"
     for i, v in pairs(debug.getregistry()) do
         if type(v) == "string" and v:match("^https?://") then
-            urlData = urlData .. "[URL_" .. tostring(i) .. "] = \"" .. v .. "\",\n"
+            urlData = urlData .. string.format("[URL_%s] = \"%s\",\n", tostring(i), v)
         end
     end
     return urlData
@@ -74,8 +67,29 @@ if options.LogEnvVars then
     logToConsole("[INFO] Environment variables and URLs saved.")
 end
 
-local reqFunc = (syn or http).request
-local originalRequest = hookfunction(reqFunc, newcclosure(function(req)
+local reqFunc = syn and syn.request or http.request
+local originalRequest = reqFunc
+
+local function attemptDecompile(scriptSource)
+    if not scriptSource or scriptSource == "" then return "Decompilation failed: Empty or invalid script." end
+    local decompiledScript = "Decompilation failed: No available method."
+
+    -- Try different decompilation methods
+    if decompile then
+        local success, result = pcall(decompile, scriptSource)
+        if success then decompiledScript = result end
+    elseif dumpstring then
+        local success, result = pcall(dumpstring, scriptSource)
+        if success then decompiledScript = result end
+    elseif string.dump then
+        local success, result = pcall(string.dump, loadstring(scriptSource, "Decompiled"))
+        if success then decompiledScript = result end
+    end
+
+    return decompiledScript
+end
+
+local function newRequest(req)
     if type(req) ~= "table" or not req.Url then return originalRequest(req) end
     
     if options.BlockedURLs[req.Url] then
@@ -83,7 +97,7 @@ local originalRequest = hookfunction(reqFunc, newcclosure(function(req)
         return { StatusCode = 403, Body = "Blocked Request" }
     end
     
-    local requestLog = "URL fetched:\n[Request] = \"" .. req.Url .. "\"\n"
+    local requestLog = string.format("URL fetched:\n[Request] = \"%s\"\n", req.Url)
     logToConsole("[HTTP] " .. req.Url)
     logToFile(requestLog .. "Request Data:\n" .. Serializer.Serialize(req))
     
@@ -94,8 +108,17 @@ local originalRequest = hookfunction(reqFunc, newcclosure(function(req)
         logToConsole("[RESPONSE] " .. Serializer.Serialize(response))
         logToFile("Response Data:\n" .. Serializer.Serialize(response))
     end
+
+    -- Attempt script decompilation if the response looks like a script
+    if options.AttemptDecompile and response.Body and response.Body:find("function") then
+        local decompiled = attemptDecompile(response.Body)
+        logToConsole("[DECOMPILED SCRIPT] " .. decompiled)
+        logToFile("Script Decompiled:\n" .. decompiled)
+    end
     
     return response
-end))
+end
 
-logToConsole("ClientHttpLogger initialized. Logging all client-side HTTP requests, environment variables, and fetched URLs.")
+hookfunction(originalRequest, newRequest)
+
+logToConsole("ClientHttpLogger initialized. Logging all client-side HTTP requests, environment variables, and fetched URLs. Now attempting script decompilation.")
